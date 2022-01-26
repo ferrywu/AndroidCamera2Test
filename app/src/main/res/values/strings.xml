@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Camera2Test</string>
+    <string name="request_permissions_fail">Failed to request permissions</string>
+    <string name="preview_fail">Failed to start preview</string>
+</resources>

@@ -17,6 +17,7 @@ import android.hardware.camera2.CaptureRequest;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Surface;
+import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.widget.Toast;
 
@@ -29,19 +30,43 @@ public class MainActivity extends AppCompatActivity {
             Manifest.permission.CAMERA
     };
 
-    private Surface previewSurface;
+    private SurfaceView previewView;
+    private CameraDevice cameraDevice = null;
+    private CameraCaptureSession cameraCaptureSession = null;
+
+    private final SurfaceHolder.Callback surfaceHolderCallback = new SurfaceHolder.Callback() {
+        @Override
+        public void surfaceCreated(@NonNull SurfaceHolder surfaceHolder) {
+            if (checkPermission()) {
+                startCamera();
+            }
+        }
+
+        @Override
+        public void surfaceChanged(@NonNull SurfaceHolder surfaceHolder, int i, int i1, int i2) {
+
+        }
+
+        @Override
+        public void surfaceDestroyed(@NonNull SurfaceHolder surfaceHolder) {
+            if (cameraCaptureSession != null) {
+                cameraCaptureSession.close();
+                cameraCaptureSession = null;
+            }
+            if (cameraDevice != null) {
+                cameraDevice.close();
+                cameraDevice = null;
+            }
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        SurfaceView previewView = findViewById(R.id.previewView);
-        previewSurface = previewView.getHolder().getSurface();
-
-        if (checkPermission()) {
-            startCamera();
-        }
+        previewView = findViewById(R.id.previewView);
+        previewView.getHolder().addCallback(surfaceHolderCallback);
     }
 
     @SuppressLint("MissingSuperCall")
@@ -120,12 +145,14 @@ public class MainActivity extends AppCompatActivity {
 
     private final CameraCaptureSession.StateCallback sessionStateCallback = new CameraCaptureSession.StateCallback() {
         @Override
-        public void onConfigured(@NonNull CameraCaptureSession cameraCaptureSession) {
+        public void onConfigured(@NonNull CameraCaptureSession session) {
+            Surface previewSurface = previewView.getHolder().getSurface();
+            cameraCaptureSession = session;
             try {
-                CaptureRequest.Builder captureRequest = cameraCaptureSession.getDevice()
+                CaptureRequest.Builder captureRequest = session.getDevice()
                         .createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
                 captureRequest.addTarget(previewSurface);
-                cameraCaptureSession.setRepeatingRequest(captureRequest.build(), null, null);
+                session.setRepeatingRequest(captureRequest.build(), null, null);
             } catch (CameraAccessException e) {
                 Toast.makeText(getBaseContext(),
                         getResources().getString(R.string.preview_fail),
@@ -135,7 +162,9 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @Override
-        public void onConfigureFailed(@NonNull CameraCaptureSession cameraCaptureSession) {
+        public void onConfigureFailed(@NonNull CameraCaptureSession session) {
+            session.close();
+            cameraCaptureSession = null;
             Toast.makeText(getBaseContext(),
                     getResources().getString(R.string.preview_fail),
                     Toast.LENGTH_LONG).show();
@@ -145,9 +174,11 @@ public class MainActivity extends AppCompatActivity {
 
     private final CameraDevice.StateCallback deviceStateCallback = new CameraDevice.StateCallback() {
         @Override
-        public void onOpened(@NonNull CameraDevice cameraDevice) {
+        public void onOpened(@NonNull CameraDevice device) {
+            Surface previewSurface = previewView.getHolder().getSurface();
+            cameraDevice = device;
             try {
-                cameraDevice.createCaptureSession(
+                device.createCaptureSession(
                         Arrays.asList(new Surface[]{ previewSurface }),
                         sessionStateCallback, null);
             } catch (CameraAccessException e) {
@@ -159,14 +190,16 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @Override
-        public void onDisconnected(@NonNull CameraDevice cameraDevice) {
-            cameraDevice.close();
+        public void onDisconnected(@NonNull CameraDevice device) {
+            device.close();
+            cameraDevice = null;
         }
 
         @Override
-        public void onError(@NonNull CameraDevice cameraDevice, int i) {
+        public void onError(@NonNull CameraDevice device, int i) {
             Log.e(getClass().getName(), "Error occurs on camera device : " + i);
-            cameraDevice.close();
+            device.close();
+            cameraDevice = null;
         }
     };
 

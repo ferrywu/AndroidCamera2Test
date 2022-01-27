@@ -8,20 +8,33 @@ import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.graphics.ImageFormat;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.params.StreamConfigurationMap;
+import android.media.Image;
+import android.media.ImageReader;
 import android.os.Bundle;
 import android.util.Log;
-import android.view.Surface;
+import android.util.Size;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
+import android.widget.Button;
 import android.widget.Toast;
 
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.text.SimpleDateFormat;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -31,6 +44,7 @@ public class MainActivity extends AppCompatActivity {
     };
 
     private SurfaceView previewView;
+    private ImageReader imageReader = null;
     private CameraDevice cameraDevice = null;
     private CameraCaptureSession cameraCaptureSession = null;
 
@@ -49,14 +63,7 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public void surfaceDestroyed(@NonNull SurfaceHolder surfaceHolder) {
-            if (cameraCaptureSession != null) {
-                cameraCaptureSession.close();
-                cameraCaptureSession = null;
-            }
-            if (cameraDevice != null) {
-                cameraDevice.close();
-                cameraDevice = null;
-            }
+            stopCamera();
         }
     };
 
@@ -67,6 +74,9 @@ public class MainActivity extends AppCompatActivity {
 
         previewView = findViewById(R.id.previewView);
         previewView.getHolder().addCallback(surfaceHolderCallback);
+
+        Button captureButton = findViewById(R.id.captureButton);
+        captureButton.setOnClickListener(view -> takePicture());
     }
 
     @SuppressLint("MissingSuperCall")
@@ -143,15 +153,23 @@ public class MainActivity extends AppCompatActivity {
         return null;
     }
 
+    private Size getMaximumPictureSize(@NonNull CameraCharacteristics characteristics, int format) {
+        StreamConfigurationMap streamConfigurationMap =
+                characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+        Size[] sizes = streamConfigurationMap.getOutputSizes(format);
+        Collections.sort(Arrays.asList(sizes), (Comparator<Size>) (o1, o2) ->
+                (o2.getWidth() * o2.getHeight() - o1.getWidth() * o1.getHeight()));
+        return sizes[0];
+    }
+
     private final CameraCaptureSession.StateCallback sessionStateCallback = new CameraCaptureSession.StateCallback() {
         @Override
         public void onConfigured(@NonNull CameraCaptureSession session) {
-            Surface previewSurface = previewView.getHolder().getSurface();
             cameraCaptureSession = session;
             try {
-                CaptureRequest.Builder captureRequest = session.getDevice()
-                        .createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-                captureRequest.addTarget(previewSurface);
+                CaptureRequest.Builder captureRequest =
+                        cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+                captureRequest.addTarget(previewView.getHolder().getSurface());
                 session.setRepeatingRequest(captureRequest.build(), null, null);
             } catch (CameraAccessException e) {
                 Toast.makeText(getBaseContext(),
@@ -163,8 +181,7 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public void onConfigureFailed(@NonNull CameraCaptureSession session) {
-            session.close();
-            cameraCaptureSession = null;
+            stopCamera();
             Toast.makeText(getBaseContext(),
                     getResources().getString(R.string.preview_fail),
                     Toast.LENGTH_LONG).show();
@@ -175,11 +192,12 @@ public class MainActivity extends AppCompatActivity {
     private final CameraDevice.StateCallback deviceStateCallback = new CameraDevice.StateCallback() {
         @Override
         public void onOpened(@NonNull CameraDevice device) {
-            Surface previewSurface = previewView.getHolder().getSurface();
             cameraDevice = device;
             try {
                 device.createCaptureSession(
-                        Arrays.asList(new Surface[]{ previewSurface }),
+                        Arrays.asList(
+                                previewView.getHolder().getSurface(),
+                                imageReader.getSurface()),
                         sessionStateCallback, null);
             } catch (CameraAccessException e) {
                 Toast.makeText(getBaseContext(),
@@ -191,15 +209,44 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public void onDisconnected(@NonNull CameraDevice device) {
-            device.close();
-            cameraDevice = null;
+            stopCamera();
         }
 
         @Override
         public void onError(@NonNull CameraDevice device, int i) {
             Log.e(getClass().getName(), "Error occurs on camera device : " + i);
-            device.close();
-            cameraDevice = null;
+            stopCamera();
+        }
+    };
+
+    private final ImageReader.OnImageAvailableListener imageAvailableListener = new ImageReader.OnImageAvailableListener() {
+        @Override
+        public void onImageAvailable(ImageReader imageReader) {
+            try (Image image = imageReader.acquireLatestImage()) {
+                ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+                byte[] bytes = new byte[buffer.remaining()];
+                buffer.get(bytes);
+                buffer.rewind();
+
+                String fileName = getExternalFilesDir("").toString() + "/image_" +
+                        new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date()) + ".jpg";
+                try {
+                    FileOutputStream fos = new FileOutputStream(fileName);
+                    fos.write(bytes);
+                    fos.close();
+
+                    Toast.makeText(getBaseContext(),
+                            getResources().getString(R.string.take_picture_success),
+                            Toast.LENGTH_LONG).show();
+                    Log.d(getClass().getName(), "Saved picture to " + fileName);
+                } catch (IOException e) {
+                    Toast.makeText(getBaseContext(),
+                            getResources().getString(R.string.take_picture_fail),
+                            Toast.LENGTH_LONG).show();
+                    Log.e(getClass().getName(), e.getMessage());
+                    Log.e(getClass().getName(), "Failed to save picture to " + fileName);
+                }
+            }
         }
     };
 
@@ -207,14 +254,42 @@ public class MainActivity extends AppCompatActivity {
     private void startCamera() {
         CameraManager manager = (CameraManager) this.getSystemService(Context.CAMERA_SERVICE);
         try {
-            manager.openCamera(
-                    getFirstCameraIdFacing(manager, CameraCharacteristics.LENS_FACING_BACK),
-                    deviceStateCallback, null);
+            String id = getFirstCameraIdFacing(manager, CameraCharacteristics.LENS_FACING_BACK);
+            Size size = getMaximumPictureSize(manager.getCameraCharacteristics(id), ImageFormat.JPEG);
+            imageReader = ImageReader.newInstance(size.getWidth(), size.getHeight(), ImageFormat.JPEG, 1);
+            imageReader.setOnImageAvailableListener(imageAvailableListener, null);
+            manager.openCamera(id, deviceStateCallback, null);
         } catch (CameraAccessException e) {
             Toast.makeText(this,
                     getResources().getString(R.string.preview_fail),
                     Toast.LENGTH_LONG).show();
             Log.e(getClass().getName(), "openCamera fail");
+        }
+    }
+
+    private void stopCamera() {
+        if (cameraCaptureSession != null) {
+            cameraCaptureSession.close();
+            cameraCaptureSession = null;
+        }
+        if (cameraDevice != null) {
+            cameraDevice.close();
+            cameraDevice = null;
+        }
+        if (imageReader != null) {
+            imageReader.close();
+            imageReader = null;
+        }
+    }
+
+    private void takePicture() {
+        try {
+            CaptureRequest.Builder captureRequest =
+                    cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+            captureRequest.addTarget(imageReader.getSurface());
+            cameraCaptureSession.capture(captureRequest.build(), null, null);
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
         }
     }
 }

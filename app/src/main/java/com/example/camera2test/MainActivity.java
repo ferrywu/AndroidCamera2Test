@@ -21,6 +21,8 @@ import android.media.ImageReader;
 import android.os.Bundle;
 import android.util.Log;
 import android.util.Size;
+import android.util.SparseIntArray;
+import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.widget.Button;
@@ -47,6 +49,7 @@ public class MainActivity extends AppCompatActivity {
     private ImageReader imageReader = null;
     private CameraDevice cameraDevice = null;
     private CameraCaptureSession cameraCaptureSession = null;
+    private int jpegOrientation = 0;
 
     private final SurfaceHolder.Callback surfaceHolderCallback = new SurfaceHolder.Callback() {
         @Override
@@ -162,6 +165,24 @@ public class MainActivity extends AppCompatActivity {
         return sizes[0];
     }
 
+    private int getJpegOrientation(CameraCharacteristics c, int deviceOrientation) {
+        if (deviceOrientation == android.view.OrientationEventListener.ORIENTATION_UNKNOWN) return 0;
+        int sensorOrientation = c.get(CameraCharacteristics.SENSOR_ORIENTATION);
+
+        // Round device orientation to a multiple of 90
+        deviceOrientation = (deviceOrientation + 45) / 90 * 90;
+
+        // Reverse device orientation for front-facing cameras
+        boolean facingFront = c.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT;
+        if (facingFront) deviceOrientation = -deviceOrientation;
+
+        // Calculate desired JPEG orientation relative to camera orientation to make
+        // the image upright relative to the device orientation
+        int jpegOrientation = (sensorOrientation + deviceOrientation + 360) % 360;
+
+        return jpegOrientation;
+    }
+
     private final CameraCaptureSession.StateCallback sessionStateCallback = new CameraCaptureSession.StateCallback() {
         @Override
         public void onConfigured(@NonNull CameraCaptureSession session) {
@@ -255,9 +276,21 @@ public class MainActivity extends AppCompatActivity {
         CameraManager manager = (CameraManager) this.getSystemService(Context.CAMERA_SERVICE);
         try {
             String id = getFirstCameraIdFacing(manager, CameraCharacteristics.LENS_FACING_BACK);
-            Size size = getMaximumPictureSize(manager.getCameraCharacteristics(id), ImageFormat.JPEG);
+
+            CameraCharacteristics characteristics = manager.getCameraCharacteristics(id);
+            Size size = getMaximumPictureSize(characteristics, ImageFormat.JPEG);
+
+            SparseIntArray orientations = new SparseIntArray(4);
+            orientations.append(Surface.ROTATION_0, 0);
+            orientations.append(Surface.ROTATION_90, 270);
+            orientations.append(Surface.ROTATION_180, 180);
+            orientations.append(Surface.ROTATION_270, 90);
+            jpegOrientation = getJpegOrientation(characteristics,
+                    orientations.get(getWindowManager().getDefaultDisplay().getRotation()));
+
             imageReader = ImageReader.newInstance(size.getWidth(), size.getHeight(), ImageFormat.JPEG, 1);
             imageReader.setOnImageAvailableListener(imageAvailableListener, null);
+
             manager.openCamera(id, deviceStateCallback, null);
         } catch (CameraAccessException e) {
             Toast.makeText(this,
@@ -287,6 +320,7 @@ public class MainActivity extends AppCompatActivity {
             CaptureRequest.Builder captureRequest =
                     cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
             captureRequest.addTarget(imageReader.getSurface());
+            captureRequest.set(CaptureRequest.JPEG_ORIENTATION, jpegOrientation);
             cameraCaptureSession.capture(captureRequest.build(), null, null);
         } catch (CameraAccessException e) {
             e.printStackTrace();

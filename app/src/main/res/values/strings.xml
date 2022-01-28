@@ -1,7 +1,12 @@
 <resources>
     <string name="app_name">Camera2Test</string>
+    <string name="camera">camera</string>
+    <string name="back_camera">back camera</string>
+    <string name="front_camera">front camera</string>
+    <string name="external_camera">external camera</string>
     <string name="capture_button_label">Capture</string>
     <string name="request_permissions_fail">Failed to request permissions</string>
+    <string name="find_camera_fail">Failed to find</string>
     <string name="preview_fail">Failed to start preview</string>
     <string name="take_picture_success">Picture saved</string>
     <string name="take_picture_fail">Failed to take picture</string>

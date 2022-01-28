@@ -126,13 +126,13 @@ public class MainActivity extends AppCompatActivity {
     private String cameraFacingToString(Integer facing) {
         switch (facing) {
             case CameraCharacteristics.LENS_FACING_BACK:
-                return "back";
+                return getResources().getString(R.string.back_camera);
             case CameraCharacteristics.LENS_FACING_FRONT:
-                return "front";
+                return getResources().getString(R.string.front_camera);
             case CameraCharacteristics.LENS_FACING_EXTERNAL:
-                return "external";
+                return getResources().getString(R.string.external_camera);
             default:
-                return "";
+                return getResources().getString(R.string.camera);
         }
     }
 
@@ -149,8 +149,11 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         } catch (CameraAccessException e) {
-            Log.e(getClass().getName(),
-                    "Fail to get " + cameraFacingToString(facing) + " camera");
+            String message = getResources().getString(R.string.find_camera_fail) + " " + cameraFacingToString(facing);
+            Toast.makeText(getBaseContext(),
+                    message,
+                    Toast.LENGTH_LONG).show();
+            Log.e(getClass().getName(), message);
         }
 
         return null;
@@ -230,6 +233,7 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public void onDisconnected(@NonNull CameraDevice device) {
+            Log.d(getClass().getName(), "deviceStateCallback onDisconnected");
             stopCamera();
         }
 
@@ -264,7 +268,6 @@ public class MainActivity extends AppCompatActivity {
                     Toast.makeText(getBaseContext(),
                             getResources().getString(R.string.take_picture_fail),
                             Toast.LENGTH_LONG).show();
-                    Log.e(getClass().getName(), e.getMessage());
                     Log.e(getClass().getName(), "Failed to save picture to " + fileName);
                 }
             }
@@ -296,7 +299,7 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this,
                     getResources().getString(R.string.preview_fail),
                     Toast.LENGTH_LONG).show();
-            Log.e(getClass().getName(), "openCamera fail");
+            Log.e(getClass().getName(), "startCamera fail");
         }
     }
 
@@ -323,7 +326,10 @@ public class MainActivity extends AppCompatActivity {
             captureRequest.set(CaptureRequest.JPEG_ORIENTATION, jpegOrientation);
             cameraCaptureSession.capture(captureRequest.build(), null, null);
         } catch (CameraAccessException e) {
-            e.printStackTrace();
+            Toast.makeText(this,
+                    getResources().getString(R.string.take_picture_fail),
+                    Toast.LENGTH_LONG).show();
+            Log.e(getClass().getName(), "takePicture fail");
         }
     }
 }

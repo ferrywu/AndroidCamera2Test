@@ -24,6 +24,14 @@
             android:visibility="visible"
             android:text="@string/capture_button_label" />
 
+        <Button
+            android:id="@+id/recordButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="20dp"
+            android:visibility="visible"
+            android:text="@string/record_button_label" />
+
     </LinearLayout>
 
 </RelativeLayout>

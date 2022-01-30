@@ -16,8 +16,10 @@ import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.StreamConfigurationMap;
+import android.media.CamcorderProfile;
 import android.media.Image;
 import android.media.ImageReader;
+import android.media.MediaRecorder;
 import android.os.Bundle;
 import android.util.Log;
 import android.util.Size;
@@ -42,14 +44,26 @@ public class MainActivity extends AppCompatActivity {
 
     private final int REQUEST_CAMERA_PERMISSION = 200;
     private final String[] requiredPermissions = {
-            Manifest.permission.CAMERA
+            Manifest.permission.CAMERA,
+            Manifest.permission.RECORD_AUDIO
     };
+
+    private static final SparseIntArray ORIENTATIONS = new SparseIntArray();
+    static {
+        ORIENTATIONS.append(Surface.ROTATION_0, 0);
+        ORIENTATIONS.append(Surface.ROTATION_90, 270);
+        ORIENTATIONS.append(Surface.ROTATION_180, 180);
+        ORIENTATIONS.append(Surface.ROTATION_270, 90);
+    }
+    private int targetOrientation = 0;
 
     private SurfaceView previewView;
     private ImageReader imageReader = null;
+    private MediaRecorder mediaRecorder = null;
     private CameraDevice cameraDevice = null;
     private CameraCaptureSession cameraCaptureSession = null;
-    private int jpegOrientation = 0;
+    private Button recordButton;
+    private boolean isRecording;
 
     private final SurfaceHolder.Callback surfaceHolderCallback = new SurfaceHolder.Callback() {
         @Override
@@ -80,6 +94,16 @@ public class MainActivity extends AppCompatActivity {
 
         Button captureButton = findViewById(R.id.captureButton);
         captureButton.setOnClickListener(view -> takePicture());
+
+        isRecording = false;
+        recordButton = findViewById(R.id.recordButton);
+        recordButton.setOnClickListener(view -> {
+            if (!isRecording) {
+                startRecording();
+            } else {
+                stopRecording();
+            }
+        });
     }
 
     @SuppressLint("MissingSuperCall")
@@ -98,7 +122,7 @@ public class MainActivity extends AppCompatActivity {
             if (pass) {
                 startCamera();
             } else {
-                Toast.makeText(this,
+                Toast.makeText(getBaseContext(),
                         getResources().getString(R.string.request_permissions_fail),
                         Toast.LENGTH_LONG).show();
                 finish();
@@ -168,7 +192,7 @@ public class MainActivity extends AppCompatActivity {
         return sizes[0];
     }
 
-    private int getJpegOrientation(CameraCharacteristics c, int deviceOrientation) {
+    private int getTargetOrientation(CameraCharacteristics c, int deviceOrientation) {
         if (deviceOrientation == android.view.OrientationEventListener.ORIENTATION_UNKNOWN) return 0;
         int sensorOrientation = c.get(CameraCharacteristics.SENSOR_ORIENTATION);
 
@@ -181,26 +205,14 @@ public class MainActivity extends AppCompatActivity {
 
         // Calculate desired JPEG orientation relative to camera orientation to make
         // the image upright relative to the device orientation
-        int jpegOrientation = (sensorOrientation + deviceOrientation + 360) % 360;
-
-        return jpegOrientation;
+        return (sensorOrientation + deviceOrientation + 360) % 360;
     }
 
     private final CameraCaptureSession.StateCallback sessionStateCallback = new CameraCaptureSession.StateCallback() {
         @Override
         public void onConfigured(@NonNull CameraCaptureSession session) {
             cameraCaptureSession = session;
-            try {
-                CaptureRequest.Builder captureRequest =
-                        cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-                captureRequest.addTarget(previewView.getHolder().getSurface());
-                session.setRepeatingRequest(captureRequest.build(), null, null);
-            } catch (CameraAccessException e) {
-                Toast.makeText(getBaseContext(),
-                        getResources().getString(R.string.preview_fail),
-                        Toast.LENGTH_LONG).show();
-                Log.e(getClass().getName(), "createCaptureRequest fail");
-            }
+            updatePreview();
         }
 
         @Override
@@ -217,18 +229,7 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onOpened(@NonNull CameraDevice device) {
             cameraDevice = device;
-            try {
-                device.createCaptureSession(
-                        Arrays.asList(
-                                previewView.getHolder().getSurface(),
-                                imageReader.getSurface()),
-                        sessionStateCallback, null);
-            } catch (CameraAccessException e) {
-                Toast.makeText(getBaseContext(),
-                        getResources().getString(R.string.preview_fail),
-                        Toast.LENGTH_LONG).show();
-                Log.e(getClass().getName(), "createCaptureSession fail");
-            }
+            updateCameraSession();
         }
 
         @Override
@@ -274,8 +275,106 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
+    private void setupMediaRecorder() {
+        mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+        mediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
+        mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+
+        String fileName = getExternalFilesDir("").toString() + "/video_" +
+                new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date()) + ".mp4";
+        mediaRecorder.setOutputFile(fileName);
+
+        CamcorderProfile profile = CamcorderProfile.get(CamcorderProfile.QUALITY_HIGH);
+        mediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
+        mediaRecorder.setVideoFrameRate(profile.videoFrameRate);
+        mediaRecorder.setVideoSize(profile.videoFrameWidth, profile.videoFrameHeight);
+        mediaRecorder.setVideoEncodingBitRate(profile.videoBitRate);
+        mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+        mediaRecorder.setAudioEncodingBitRate(profile.audioBitRate);
+        mediaRecorder.setAudioSamplingRate(profile.audioSampleRate);
+        mediaRecorder.setOrientationHint(targetOrientation);
+
+        try {
+            mediaRecorder.prepare();
+        } catch (IOException e) {
+            Toast.makeText(getBaseContext(),
+                    getResources().getString(R.string.record_video_fail),
+                    Toast.LENGTH_LONG).show();
+            Log.e(getClass().getName(), "setupMediaRecorder fail");
+        }
+    }
+
+    private void updateUi() {
+        if (!isRecording) {
+            isRecording = true;
+            recordButton.setText(R.string.stop_button_label);
+        } else {
+            isRecording = false;
+            recordButton.setText(R.string.record_button_label);
+        }
+    }
+
+    private void updatePreview() {
+        try {
+            CaptureRequest.Builder captureRequest;
+            if (isRecording) {
+                captureRequest = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
+                captureRequest.addTarget(previewView.getHolder().getSurface());
+                captureRequest.addTarget(mediaRecorder.getSurface());
+            } else {
+                captureRequest = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+                captureRequest.addTarget(previewView.getHolder().getSurface());
+            }
+            cameraCaptureSession.setRepeatingRequest(captureRequest.build(), null, null);
+        } catch (CameraAccessException e) {
+            if (isRecording) {
+                Toast.makeText(getBaseContext(),
+                        getResources().getString(R.string.record_video_fail),
+                        Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(getBaseContext(),
+                        getResources().getString(R.string.preview_fail),
+                        Toast.LENGTH_LONG).show();
+            }
+            Log.e(getClass().getName(), "switchPreview fail");
+        }
+    }
+
+    private void updateCameraSession() {
+        try {
+            if (cameraCaptureSession != null) {
+                cameraCaptureSession.close();
+                cameraCaptureSession = null;
+            }
+            if (isRecording) {
+                setupMediaRecorder();
+                cameraDevice.createCaptureSession(
+                        Arrays.asList(
+                                previewView.getHolder().getSurface(),
+                                imageReader.getSurface(),
+                                mediaRecorder.getSurface()
+                        ),
+                        sessionStateCallback, null);
+            } else {
+                cameraDevice.createCaptureSession(
+                        Arrays.asList(
+                                previewView.getHolder().getSurface(),
+                                imageReader.getSurface()
+                        ),
+                        sessionStateCallback, null);
+            }
+
+        } catch (CameraAccessException e) {
+            Toast.makeText(getBaseContext(),
+                    getResources().getString(R.string.preview_fail),
+                    Toast.LENGTH_LONG).show();
+            Log.e(getClass().getName(), "createCaptureSession fail");
+        }
+    }
+
     @SuppressLint("MissingPermission")
     private void startCamera() {
+        isRecording = false;
         CameraManager manager = (CameraManager) this.getSystemService(Context.CAMERA_SERVICE);
         try {
             String id = getFirstCameraIdFacing(manager, CameraCharacteristics.LENS_FACING_BACK);
@@ -283,20 +382,17 @@ public class MainActivity extends AppCompatActivity {
             CameraCharacteristics characteristics = manager.getCameraCharacteristics(id);
             Size size = getMaximumPictureSize(characteristics, ImageFormat.JPEG);
 
-            SparseIntArray orientations = new SparseIntArray(4);
-            orientations.append(Surface.ROTATION_0, 0);
-            orientations.append(Surface.ROTATION_90, 270);
-            orientations.append(Surface.ROTATION_180, 180);
-            orientations.append(Surface.ROTATION_270, 90);
-            jpegOrientation = getJpegOrientation(characteristics,
-                    orientations.get(getWindowManager().getDefaultDisplay().getRotation()));
+            targetOrientation = getTargetOrientation(characteristics,
+                    ORIENTATIONS.get(getWindowManager().getDefaultDisplay().getRotation()));
 
             imageReader = ImageReader.newInstance(size.getWidth(), size.getHeight(), ImageFormat.JPEG, 1);
             imageReader.setOnImageAvailableListener(imageAvailableListener, null);
 
+            mediaRecorder = new MediaRecorder();
+
             manager.openCamera(id, deviceStateCallback, null);
         } catch (CameraAccessException e) {
-            Toast.makeText(this,
+            Toast.makeText(getBaseContext(),
                     getResources().getString(R.string.preview_fail),
                     Toast.LENGTH_LONG).show();
             Log.e(getClass().getName(), "startCamera fail");
@@ -316,6 +412,10 @@ public class MainActivity extends AppCompatActivity {
             imageReader.close();
             imageReader = null;
         }
+        if (mediaRecorder != null) {
+            mediaRecorder.release();
+            mediaRecorder = null;
+        }
     }
 
     private void takePicture() {
@@ -323,13 +423,26 @@ public class MainActivity extends AppCompatActivity {
             CaptureRequest.Builder captureRequest =
                     cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
             captureRequest.addTarget(imageReader.getSurface());
-            captureRequest.set(CaptureRequest.JPEG_ORIENTATION, jpegOrientation);
+            captureRequest.set(CaptureRequest.JPEG_ORIENTATION, targetOrientation);
             cameraCaptureSession.capture(captureRequest.build(), null, null);
         } catch (CameraAccessException e) {
-            Toast.makeText(this,
+            Toast.makeText(getBaseContext(),
                     getResources().getString(R.string.take_picture_fail),
                     Toast.LENGTH_LONG).show();
             Log.e(getClass().getName(), "takePicture fail");
         }
+    }
+
+    private void startRecording() {
+        updateUi();
+        updateCameraSession();
+        mediaRecorder.start();
+    }
+
+    private void stopRecording() {
+        mediaRecorder.stop();
+        mediaRecorder.reset();
+        updateUi();
+        updateCameraSession();
     }
 }

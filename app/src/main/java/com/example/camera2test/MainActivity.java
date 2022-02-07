@@ -122,7 +122,7 @@ public class MainActivity extends AppCompatActivity {
             if (pass) {
                 startCamera();
             } else {
-                Toast.makeText(getBaseContext(),
+                Toast.makeText(this,
                         getResources().getString(R.string.request_permissions_fail),
                         Toast.LENGTH_LONG).show();
                 finish();
@@ -174,7 +174,7 @@ public class MainActivity extends AppCompatActivity {
             }
         } catch (CameraAccessException e) {
             String message = getResources().getString(R.string.find_camera_fail) + " " + cameraFacingToString(facing);
-            Toast.makeText(getBaseContext(),
+            Toast.makeText(this,
                     message,
                     Toast.LENGTH_LONG).show();
             Log.e(getClass().getName(), message);
@@ -218,7 +218,7 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onConfigureFailed(@NonNull CameraCaptureSession session) {
             stopCamera();
-            Toast.makeText(getBaseContext(),
+            Toast.makeText(MainActivity.this,
                     getResources().getString(R.string.preview_fail),
                     Toast.LENGTH_LONG).show();
             Log.e(getClass().getName(), "onConfigureFailed");
@@ -261,12 +261,12 @@ public class MainActivity extends AppCompatActivity {
                     fos.write(bytes);
                     fos.close();
 
-                    Toast.makeText(getBaseContext(),
+                    Toast.makeText(MainActivity.this,
                             getResources().getString(R.string.take_picture_success),
                             Toast.LENGTH_LONG).show();
                     Log.d(getClass().getName(), "Saved picture to " + fileName);
                 } catch (IOException e) {
-                    Toast.makeText(getBaseContext(),
+                    Toast.makeText(MainActivity.this,
                             getResources().getString(R.string.take_picture_fail),
                             Toast.LENGTH_LONG).show();
                     Log.e(getClass().getName(), "Failed to save picture to " + fileName);
@@ -297,7 +297,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             mediaRecorder.prepare();
         } catch (IOException e) {
-            Toast.makeText(getBaseContext(),
+            Toast.makeText(this,
                     getResources().getString(R.string.record_video_fail),
                     Toast.LENGTH_LONG).show();
             Log.e(getClass().getName(), "setupMediaRecorder fail");
@@ -328,11 +328,11 @@ public class MainActivity extends AppCompatActivity {
             cameraCaptureSession.setRepeatingRequest(captureRequest.build(), null, null);
         } catch (CameraAccessException e) {
             if (isRecording) {
-                Toast.makeText(getBaseContext(),
+                Toast.makeText(this,
                         getResources().getString(R.string.record_video_fail),
                         Toast.LENGTH_LONG).show();
             } else {
-                Toast.makeText(getBaseContext(),
+                Toast.makeText(this,
                         getResources().getString(R.string.preview_fail),
                         Toast.LENGTH_LONG).show();
             }
@@ -365,7 +365,7 @@ public class MainActivity extends AppCompatActivity {
             }
 
         } catch (CameraAccessException e) {
-            Toast.makeText(getBaseContext(),
+            Toast.makeText(this,
                     getResources().getString(R.string.preview_fail),
                     Toast.LENGTH_LONG).show();
             Log.e(getClass().getName(), "createCaptureSession fail");
@@ -392,7 +392,7 @@ public class MainActivity extends AppCompatActivity {
 
             manager.openCamera(id, deviceStateCallback, null);
         } catch (CameraAccessException e) {
-            Toast.makeText(getBaseContext(),
+            Toast.makeText(this,
                     getResources().getString(R.string.preview_fail),
                     Toast.LENGTH_LONG).show();
             Log.e(getClass().getName(), "startCamera fail");
@@ -426,7 +426,7 @@ public class MainActivity extends AppCompatActivity {
             captureRequest.set(CaptureRequest.JPEG_ORIENTATION, targetOrientation);
             cameraCaptureSession.capture(captureRequest.build(), null, null);
         } catch (CameraAccessException e) {
-            Toast.makeText(getBaseContext(),
+            Toast.makeText(this,
                     getResources().getString(R.string.take_picture_fail),
                     Toast.LENGTH_LONG).show();
             Log.e(getClass().getName(), "takePicture fail");
